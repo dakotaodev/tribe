@@ -47,5 +47,5 @@ make test
 ```
 
 For release builds, use Expo Application Services after configuring the project
-for the intended environment. Product features and database migrations have
+for the intended environment. Product features beyond the initial schema have
 intentionally not been implemented yet.
