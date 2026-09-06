@@ -12,8 +12,9 @@ client.
 
 ## Getting started
 
-1. Copy the environment templates and fill in the values appropriate for your
-   local Supabase project:
+1. Follow the [Supabase environment setup](docs/supabase-environments.md) to
+   create or select the correct local project, then copy the environment
+   templates and fill in that project's values:
 
    ```sh
    cp api/.env.example api/.env
@@ -46,5 +47,5 @@ make test
 ```
 
 For release builds, use Expo Application Services after configuring the project
-for the intended environment. Product features, database migrations, and
-Supabase integration have intentionally not been implemented yet.
+for the intended environment. Product features and database migrations have
+intentionally not been implemented yet.
