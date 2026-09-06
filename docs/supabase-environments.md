@@ -77,6 +77,52 @@ The current bootstrap API only requires `PORT`; the remaining API variables are
 the agreed contract for the forthcoming Supabase integration. This lets local
 development begin without inventing names or exposing credentials.
 
+## Database migrations
+
+Supabase CLI owns the repository's versioned PostgreSQL migrations. The SQL
+files in `supabase/migrations/` are applied in filename order. Do not edit a
+migration after it has been applied to a shared environment; add a later
+migration instead.
+
+`public.users.id` is both the application user identifier and a foreign key to
+`auth.users.id`. This direct UUID mapping lets the Go API derive the application
+user from a verified Supabase Auth identity without trusting a client-provided
+user ID. `avatar_path` stores a private Supabase Storage object path rather
+than a permanent public URL; the API will produce authorized, short-lived
+signed URLs when avatars are served.
+
+### Apply locally
+
+With Docker running and the Supabase CLI installed, recreate the local database
+and apply every committed migration from a clean state:
+
+```sh
+supabase start
+supabase db reset
+supabase migration list
+```
+
+`supabase db reset` is destructive and must only be run against a local
+development database.
+
+### Apply to staging or beta
+
+Never run `supabase db reset` against a shared environment. After reviewing a
+migration, authenticate and link the CLI to the intended project, then apply
+only pending migrations:
+
+```sh
+supabase login
+supabase link --project-ref <project-ref>
+supabase db push
+supabase migration list
+```
+
+`supabase db push` compares the committed migration files with Supabase's
+migration history and applies only missing files in order. The username
+migration must be deployed before any application profile rows exist because it
+adds a required, unique value.
+
 ## Staging and beta setup
 
 1. Create separate Supabase projects and separate API/Expo environment values
