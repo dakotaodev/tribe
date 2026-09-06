@@ -35,7 +35,7 @@ client.
    ```
 
 The API listens on `http://localhost:8080` by default. Its health endpoint is
-available at `GET /healthz`.
+available at `GET /health`.
 
 ## Verification
 
