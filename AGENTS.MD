@@ -77,17 +77,20 @@ If a request contains several separable features, recommend splitting the work b
 Backend technology:
 
 - Go
+- Gin for the HTTP API
 - REST
 - PostgreSQL
 - modular monolith
+
+Gin is the standard HTTP framework. Use it for routing, middleware, request binding, and HTTP responses; do not introduce `net/http` routers or alternative frameworks.
 
 Prefer simple, explicit Go.
 
 Avoid unnecessary abstraction.
 
-Handlers should remain thin.
+Gin handlers should remain thin. They may bind/validate transport input, read authenticated identity from context, call application/domain logic, and serialize HTTP responses.
 
-Business rules should not be embedded directly in HTTP handlers.
+Business rules must not be embedded directly in handlers. Application/domain code must remain framework-independent: do not pass `gin.Context`, Gin request types, or Gin response helpers beyond the transport layer; use plain Go inputs and `context.Context` instead.
 
 Database logic should have clear boundaries.
 
