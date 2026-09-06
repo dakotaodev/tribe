@@ -9,6 +9,7 @@
     "build": "expo export --platform ios --output-dir dist"
   },
   "dependencies": {
+    "@expo/log-box": "~57.0.4",
     "expo": "~57.0.20",
     "expo-constants": "~57.0.17",
     "expo-linking": "~57.0.9",
