@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: tribe-api-staging
+    runtime: docker
+    region: oregon
+    plan: free
+    branch: develop
+    autoDeployTrigger: commit
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_ISSUER
+        sync: false
