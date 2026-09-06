@@ -1,0 +1,28 @@
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+
+# Go
+api/coverage.out
+api/bin/
+
+# Node / Expo
+node_modules/
+/.pnpm-store/
+mobile/.expo/
+mobile/dist/
+mobile/dist-web/
+mobile/web-build/
+mobile/.env.local
+mobile/npm-debug.log*
+mobile/pnpm-debug.log*
+
+# Native build artifacts
+mobile/ios/
+mobile/android/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
