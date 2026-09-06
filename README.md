@@ -38,6 +38,11 @@ client.
 The API listens on `http://localhost:8080` by default. Its health endpoint is
 available at `GET /health`.
 
+## Staging deployment
+
+Deploy the shared Render staging API using the
+[Render staging deployment guide](docs/render-staging.md).
+
 ## Verification
 
 Run all currently configured checks from the repository root:
