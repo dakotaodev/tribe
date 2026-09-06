@@ -51,20 +51,24 @@ Android support is intentionally deferred, but implementation should avoid unnec
 Backend
 Technology:
 - Go
+- Gin for the HTTP API
 - REST
 - single deployable API service
+
+Gin is the standard HTTP framework for this service. Use it for routing, request binding, middleware, request-scoped values, and JSON responses.
+
 Prefer:
-- standard library
+- Gin at the transport boundary
 - small focused dependencies
 - explicit behavior
 - straightforward code
+
 Avoid:
-- unnecessary frameworks
+- alternative HTTP frameworks or routers
 - generic repository frameworks
 - dependency injection frameworks
 - premature abstractions
 - distributed architecture
-A lightweight router such as chi is acceptable if useful.
 Backend Package Structure
 Prefer domain-oriented packages.
 Example:
@@ -93,13 +97,14 @@ repositories/
 models/
 Domain boundaries should remain visible.
 HTTP Handlers
-Handlers should primarily:
-1. parse request
-2. authenticate user
-3. validate basic input
+Gin handlers should primarily:
+1. bind and validate basic request input
+2. obtain authenticated identity from Gin middleware/context
+3. translate HTTP input into framework-independent application inputs
 4. invoke domain/application logic
-5. serialize response
-Complex business rules should not live directly inside handlers.
+5. serialize the result or error as an HTTP response
+
+Handlers must remain thin. Business rules must not live directly inside handlers, and domain/application packages must not depend on `gin.Context`, Gin request types, or Gin response helpers. Pass plain Go values and `context.Context` across the transport boundary.
 Authentication
 Supabase Auth is the identity provider.
 The mobile client receives an authentication token from Supabase.
