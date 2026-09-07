@@ -14,7 +14,7 @@ import (
 
 func TestHealthRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := newRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := newRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -34,7 +34,11 @@ func TestHealthRoute(t *testing.T) {
 func TestLoadConfigUsesPortEnvironmentVariable(t *testing.T) {
 	t.Setenv("PORT", "9090")
 
-	config := loadConfig()
+	t.Setenv("SUPABASE_JWT_ISSUER", "https://tribe.test/auth/v1")
+	config, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
 
 	if config.port != "9090" {
 		t.Fatalf("port = %q, want %q", config.port, "9090")
@@ -44,21 +48,48 @@ func TestLoadConfigUsesPortEnvironmentVariable(t *testing.T) {
 func TestLoadConfigDefaultsPort(t *testing.T) {
 	t.Setenv("PORT", "")
 
-	config := loadConfig()
+	t.Setenv("SUPABASE_JWT_ISSUER", "https://tribe.test/auth/v1")
+	config, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
 
 	if config.port != defaultPort {
 		t.Fatalf("port = %q, want %q", config.port, defaultPort)
 	}
 }
 
+func TestLoadConfigRequiresSupabaseIssuer(t *testing.T) {
+	t.Setenv("SUPABASE_JWT_ISSUER", "")
+
+	_, err := loadConfig()
+
+	if err == nil {
+		t.Fatal("loadConfig() error = nil, want missing issuer error")
+	}
+}
+
+func TestLoadConfigDefaultsSupabaseAudience(t *testing.T) {
+	t.Setenv("SUPABASE_JWT_ISSUER", "https://tribe.test/auth/v1")
+	t.Setenv("SUPABASE_JWT_AUDIENCE", "")
+
+	config, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	if config.auth.Audience != "authenticated" {
+		t.Fatalf("Audience = %q, want authenticated", config.auth.Audience)
+	}
+}
+
 func TestServeShutsDownWhenContextCancelled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	server := httptest.NewServer(newRouter(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	server := httptest.NewServer(newRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), nil))
 	server.Close()
 
 	apiServer := &http.Server{
 		Addr:    server.Listener.Addr().String(),
-		Handler: newRouter(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		Handler: newRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), nil),
 	}
 	context, cancel := context.WithCancel(context.Background())
 	errors := make(chan error, 1)
