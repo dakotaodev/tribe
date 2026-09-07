@@ -51,12 +51,15 @@ app or prefix them with `EXPO_PUBLIC_`.
 | `PORT` | Always | Deployment configuration; defaults to `8080` locally | HTTP listener port. |
 | `DATABASE_URL` | Database access is implemented | Supabase database connection settings | PostgreSQL connection string, including a password. |
 | `SUPABASE_URL` | Supabase Auth or service APIs are implemented | Supabase project's Connect panel | Project base URL. This URL is public, but it remains server configuration here. |
-| `SUPABASE_JWT_ISSUER` | JWT verification is implemented | `${SUPABASE_URL}/auth/v1` | Expected `iss` claim. |
-| `SUPABASE_JWT_AUDIENCE` | JWT verification is implemented | `authenticated` unless the Auth configuration changes | Expected `aud` claim. |
+| `SUPABASE_JWT_ISSUER` | Always for the API | `${SUPABASE_URL}/auth/v1` | Expected `iss` claim and source for the public JWKS URL. |
+| `SUPABASE_JWT_AUDIENCE` | Optional; defaults to `authenticated` | `authenticated` unless the Auth configuration changes | Expected `aud` claim. |
 | `SUPABASE_SECRET_KEY` | A server-only Supabase API call needs elevated access | Supabase project's Connect panel | Secret key; bypasses RLS and must stay in server secret storage. |
 
-The Go API must verify user JWT signatures, issuer, audience, and expiry. With
-asymmetric signing keys it should use the project's public JWKS endpoint;
+The Go API verifies user JWT signatures, issuer, audience, expiry, and UUID
+subject with the issuer's public JWKS endpoint. Configure the Supabase project
+with asymmetric signing keys; the API deliberately does not accept or store a
+shared JWT signing secret. It refreshes signing keys on rotation and caches
+them for no longer than ten minutes.
 `SUPABASE_SECRET_KEY` is not a JWT-verification secret and must not be used to
 authenticate requests.
 
