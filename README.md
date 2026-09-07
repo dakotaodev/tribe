@@ -38,6 +38,10 @@ client.
 The API listens on `http://localhost:8080` by default. Its health endpoint is
 available at `GET /health`.
 
+The shared authenticated current-user profile boundary is defined in the
+[auth and profile contract](docs/auth-profile-contract.md). Backend and mobile
+work should implement that contract without changing it independently.
+
 ## Staging deployment
 
 Deploy the shared Render staging API using the
