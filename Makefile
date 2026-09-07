@@ -1,4 +1,4 @@
-.PHONY: api-run api-build api-format api-test api-vet mobile-install mobile-start mobile-typecheck mobile-build test
+.PHONY: api-run api-build api-format api-test api-vet mobile-install mobile-start mobile-typecheck mobile-test mobile-build test
 
 api-run:
 	cd api && go run ./cmd/server
@@ -29,7 +29,10 @@ mobile-start:
 mobile-typecheck:
 	cd mobile && pnpm typecheck
 
+mobile-test:
+	cd mobile && pnpm test
+
 mobile-build:
 	cd mobile && pnpm expo export --platform ios --output-dir dist
 
-test: api-format api-vet api-test mobile-typecheck
+test: api-format api-vet api-test mobile-typecheck mobile-test

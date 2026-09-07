@@ -2,13 +2,15 @@
   "expo": {
     "name": "Tribe",
     "slug": "tribe",
+    "scheme": "tribe",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "usesAppleSignIn": true
     },
-    "plugins": ["expo-router"],
+    "plugins": ["expo-router", "expo-apple-authentication", "expo-secure-store"],
     "experiments": {
       "typedRoutes": true
     }
