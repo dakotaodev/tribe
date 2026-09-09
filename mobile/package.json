@@ -5,6 +5,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test test/*.test.js",
     "typecheck": "tsc --noEmit",
     "build": "expo export --platform ios --output-dir dist"
   },
@@ -12,6 +13,7 @@
     "@expo/log-box": "~57.0.4",
     "expo": "~57.0.20",
     "expo-constants": "~57.0.17",
+    "expo-file-system": "~57.0.6",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.19",
     "expo-status-bar": "~57.0.1",
