@@ -51,12 +51,15 @@ app or prefix them with `EXPO_PUBLIC_`.
 | `PORT` | Always | Deployment configuration; defaults to `8080` locally | HTTP listener port. |
 | `DATABASE_URL` | Database access is implemented | Supabase database connection settings | PostgreSQL connection string, including a password. |
 | `SUPABASE_URL` | Supabase Auth or service APIs are implemented | Supabase project's Connect panel | Project base URL. This URL is public, but it remains server configuration here. |
-| `SUPABASE_JWT_ISSUER` | JWT verification is implemented | `${SUPABASE_URL}/auth/v1` | Expected `iss` claim. |
-| `SUPABASE_JWT_AUDIENCE` | JWT verification is implemented | `authenticated` unless the Auth configuration changes | Expected `aud` claim. |
+| `SUPABASE_JWT_ISSUER` | Always for the API | `${SUPABASE_URL}/auth/v1` | Expected `iss` claim and source for the public JWKS URL. |
+| `SUPABASE_JWT_AUDIENCE` | Optional; defaults to `authenticated` | `authenticated` unless the Auth configuration changes | Expected `aud` claim. |
 | `SUPABASE_SECRET_KEY` | A server-only Supabase API call needs elevated access | Supabase project's Connect panel | Secret key; bypasses RLS and must stay in server secret storage. |
 
-The Go API must verify user JWT signatures, issuer, audience, and expiry. With
-asymmetric signing keys it should use the project's public JWKS endpoint;
+The Go API verifies user JWT signatures, issuer, audience, expiry, and UUID
+subject with the issuer's public JWKS endpoint. Configure the Supabase project
+with asymmetric signing keys; the API deliberately does not accept or store a
+shared JWT signing secret. It refreshes signing keys on rotation and caches
+them for no longer than ten minutes.
 `SUPABASE_SECRET_KEY` is not a JWT-verification secret and must not be used to
 authenticate requests.
 
@@ -76,6 +79,35 @@ authenticate requests.
 The current bootstrap API only requires `PORT`; the remaining API variables are
 the agreed contract for the forthcoming Supabase integration. This lets local
 development begin without inventing names or exposing credentials.
+
+## Mobile authentication setup
+
+The mobile app uses the `tribe://auth/callback` redirect URL for email magic
+links. In each matching Supabase project:
+
+1. Enable the Email provider and configure its delivery settings.
+2. Add `tribe://auth/callback` to Authentication → URL Configuration → Redirect
+   URLs. For local Supabase, add the same URL to `auth.additional_redirect_urls`
+   in `supabase/config.toml`.
+3. Enable the Apple provider and configure it with the Apple Developer values
+   required by Supabase. Keep the Apple private key (`.p8`) only in Apple and
+   Supabase configuration; it must never enter the Expo project or Git.
+4. Build a development client or standalone iOS app after changing the Expo
+   scheme or Apple entitlement. Expo Go is not a substitute for beta auth
+   verification.
+
+### Manual iPhone verification
+
+For each environment, verify the completed native build before release:
+
+1. Sign in with Apple and confirm the signed-in state appears.
+2. Sign out, request an email magic link, open it on the same iPhone, and
+   confirm the app returns to its signed-in state.
+3. Force-quit and reopen the app; confirm the session restores.
+4. Sign out, force-quit, and reopen the app; confirm no session restores.
+
+If any auth action fails, capture the visible error and the environment name;
+do not include links, access tokens, or credentials in the report.
 
 ## Database migrations
 

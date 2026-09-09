@@ -4,22 +4,29 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, SafeAreaV
 import { ApiError, ProfileApi } from "../src/api";
 import { environment } from "../src/config";
 import { type Profile, type ProfileErrors, type ProfileInput, validateProfile } from "../src/profile";
-import { type Session, SupabaseSessionClient } from "../src/session";
+import { useSession, type Session } from "../providers/session-provider";
+import WelcomeScreen from "../components/welcome-screen";
 
 type Route = "loading" | "loadError" | "auth" | "onboarding" | "profile" | "edit";
 const blankProfile: ProfileInput = { username: "", displayName: "", bio: "" };
 
 export default function App() {
-  const auth = useMemo(() => new SupabaseSessionClient(environment.supabaseUrl, environment.supabaseKey), []);
+  const { session, isLoading } = useSession();
+  if (isLoading) return <Loading />;
+  if (!session) return <WelcomeScreen />;
+  return <ProfileApp key={session.user.id} session={session} />;
+}
+
+function ProfileApp({ session }: { session: Session }) {
+  const { signOut: endSession } = useSession();
   const api = useMemo(() => new ProfileApi(environment.apiUrl), []);
   const [route, setRoute] = useState<Route>("loading");
-  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState("");
 
   async function loadProfile(nextSession: Session) {
     try {
-      const nextProfile = await api.getMe(nextSession.accessToken);
+      const nextProfile = await api.getMe(nextSession.access_token);
       setProfile(nextProfile);
       setRoute(nextProfile ? "profile" : "onboarding");
     } catch (caught) {
@@ -29,16 +36,19 @@ export default function App() {
     }
   }
 
-  useEffect(() => { void auth.restore().then((restored) => { setSession(restored); restored ? void loadProfile(restored) : setRoute("auth"); }).catch(() => setRoute("auth")); }, []);
+  useEffect(() => { void loadProfile(session); }, [session.access_token]);
 
-  async function signedIn(nextSession: Session) { setError(""); setSession(nextSession); setRoute("loading"); await loadProfile(nextSession); }
-  async function signOut() { await auth.signOut(session); setSession(null); setProfile(null); setError(""); setRoute("auth"); }
+  async function signOut() {
+    try { await endSession(); } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sign out.");
+      setRoute("loadError");
+    }
+  }
 
   if (route === "loading") return <Loading />;
   if (route === "loadError" && session) return <MessageScreen message={error} onRetry={() => { setRoute("loading"); void loadProfile(session); }} onSignOut={() => void signOut()} />;
-  if (route === "auth") return <AuthScreen auth={auth} error={error} onAuthenticated={signedIn} />;
-  if (route === "onboarding" && session) return <ProfileForm title="Make Tribe yours" subtitle="Choose how your people will know you." initial={blankProfile} token={session.accessToken} api={api} submitLabel="Create profile" onSaved={(value) => { setProfile(value); setRoute("profile"); }} />;
-  if (route === "edit" && session && profile) return <ProfileForm title="Edit profile" subtitle="Keep it simple and recognizable." initial={profile} token={session.accessToken} api={api} submitLabel="Save changes" onCancel={() => setRoute("profile")} onSaved={(value) => { setProfile(value); setRoute("profile"); }} />;
+  if (route === "onboarding" && session) return <ProfileForm title="Make Tribe yours" subtitle="Choose how your people will know you." initial={blankProfile} token={session.access_token} api={api} submitLabel="Create profile" onSaved={(value) => { setProfile(value); setRoute("profile"); }} />;
+  if (route === "edit" && session && profile) return <ProfileForm title="Edit profile" subtitle="Keep it simple and recognizable." initial={profile} token={session.access_token} api={api} submitLabel="Save changes" onCancel={() => setRoute("profile")} onSaved={(value) => { setProfile(value); setRoute("profile"); }} />;
   if (profile) return <ProfileScreen profile={profile} onEdit={() => setRoute("edit")} onSignOut={() => void signOut()} />;
   return <Loading />;
 }
@@ -46,17 +56,6 @@ export default function App() {
 function Screen({ children }: { children: React.ReactNode }) { return <SafeAreaView style={styles.safe}><StatusBar style="dark" /><KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.screen}>{children}</ScrollView></KeyboardAvoidingView></SafeAreaView>; }
 function Loading() { return <SafeAreaView style={[styles.safe, styles.center]}><StatusBar style="dark" /><ActivityIndicator color="#5E6B4A" /><Text style={styles.muted}>Opening your Tribe…</Text></SafeAreaView>; }
 function MessageScreen({ message, onRetry, onSignOut }: { message: string; onRetry(): void; onSignOut(): void }) { return <Screen><View><Text style={styles.eyebrow}>YOUR TRIBE</Text><Text style={styles.hero}>We couldn’t load your profile.</Text><Text style={styles.copy}>{message}</Text></View><View style={styles.card}><Button label="Try again" onPress={onRetry} /><Pressable onPress={onSignOut}><Text style={styles.signOut}>Sign out</Text></Pressable></View></Screen>; }
-
-function AuthScreen({ auth, error: initialError, onAuthenticated }: { auth: SupabaseSessionClient; error: string; onAuthenticated(session: Session): Promise<void> }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin"); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(initialError); const [busy, setBusy] = useState(false);
-  async function submit() {
-    if (!email.trim() || !email.includes("@")) return setError("Enter a valid email address.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
-    setBusy(true); setError("");
-    try { await onAuthenticated(await (mode === "signin" ? auth.signIn(email, password) : auth.signUp(email, password))); } catch (caught) { setError(caught instanceof Error ? caught.message : "Authentication failed."); } finally { setBusy(false); }
-  }
-  return <Screen><View style={styles.brand}><Text style={styles.eyebrow}>TRIBE</Text><Text style={styles.hero}>A private place for your people.</Text><Text style={styles.copy}>No followers. No noise. Just the people you care about.</Text></View><View style={styles.card}><Text style={styles.heading}>{mode === "signin" ? "Welcome back" : "Create your account"}</Text><Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" /><Field label="Password" value={password} onChangeText={setPassword} secureTextEntry /><ErrorText value={error} /><Button label={busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Sign up"} disabled={busy} onPress={() => void submit()} /><Pressable accessibilityRole="button" onPress={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}><Text style={styles.link}>{mode === "signin" ? "New to Tribe? Create an account" : "Already have an account? Sign in"}</Text></Pressable></View></Screen>;
-}
 
 function ProfileForm({ title, subtitle, initial, token, api, submitLabel, onSaved, onCancel }: { title: string; subtitle: string; initial: ProfileInput; token: string; api: ProfileApi; submitLabel: string; onSaved(profile: Profile): void; onCancel?: () => void }) {
   const [value, setValue] = useState<ProfileInput>(initial); const [errors, setErrors] = useState<ProfileErrors>({}); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
