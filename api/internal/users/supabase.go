@@ -21,7 +21,7 @@ func NewSupabaseRepository(baseURL, secretKey string, client *http.Client) *Supa
 }
 
 func (r *SupabaseRepository) Get(ctx context.Context, userID string) (Profile, error) {
-	endpoint := r.baseURL + "/rest/v1/users?select=id,username,display_name,bio,created_at,updated_at&id=eq." + url.QueryEscape(userID)
+	endpoint := r.baseURL + "/rest/v1/users?select=id,username,display_name,bio,avatar_path,created_at,updated_at&id=eq." + url.QueryEscape(userID)
 	request, err := r.request(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Profile{}, err
@@ -39,6 +39,36 @@ func (r *SupabaseRepository) Get(ctx context.Context, userID string) (Profile, e
 		return Profile{}, err
 	}
 	if len(profiles) == 0 {
+		return Profile{}, ErrNotFound
+	}
+	return profiles[0], nil
+}
+
+func (r *SupabaseRepository) SetAvatar(ctx context.Context, userID, avatarPath string) (Profile, error) {
+	body, err := json.Marshal(map[string]string{"avatar_path": avatarPath})
+	if err != nil {
+		return Profile{}, err
+	}
+	endpoint := r.baseURL + "/rest/v1/users?id=eq." + url.QueryEscape(userID)
+	request, err := r.request(ctx, http.MethodPatch, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return Profile{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Prefer", "return=representation")
+	response, err := r.client.Do(request)
+	if err != nil {
+		return Profile{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return Profile{}, fmt.Errorf("set avatar: status %d", response.StatusCode)
+	}
+	var profiles []Profile
+	if err := json.NewDecoder(response.Body).Decode(&profiles); err != nil {
+		return Profile{}, err
+	}
+	if len(profiles) != 1 {
 		return Profile{}, ErrNotFound
 	}
 	return profiles[0], nil

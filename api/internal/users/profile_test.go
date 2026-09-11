@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +17,20 @@ import (
 type stubRepository struct {
 	profiles map[string]Profile
 	updates  map[string]Update
+}
+
+type stubAvatarStore struct {
+	putKey, deletedKey string
+	putErr             error
+}
+
+func (s *stubAvatarStore) Put(_ context.Context, key, _ string, _ []byte) error {
+	s.putKey = key
+	return s.putErr
+}
+func (s *stubAvatarStore) Delete(_ context.Context, key string) error { s.deletedKey = key; return nil }
+func (s *stubAvatarStore) SignedURL(_ context.Context, key string) (string, error) {
+	return "https://signed.example/" + key, nil
 }
 
 func (r *stubRepository) Get(_ context.Context, id string) (Profile, error) {
@@ -31,6 +48,15 @@ func (r *stubRepository) Upsert(_ context.Context, id string, update Update) (Pr
 	}
 	r.updates[id] = update
 	profile := Profile{ID: id, Username: update.Username, DisplayName: update.DisplayName, Bio: update.Bio}
+	r.profiles[id] = profile
+	return profile, nil
+}
+func (r *stubRepository) SetAvatar(_ context.Context, id, path string) (Profile, error) {
+	profile, ok := r.profiles[id]
+	if !ok {
+		return Profile{}, ErrNotFound
+	}
+	profile.AvatarPath = &path
 	r.profiles[id] = profile
 	return profile, nil
 }
@@ -90,6 +116,55 @@ func TestPutMeReturnsFieldValidationErrors(t *testing.T) {
 	}
 }
 
+func TestPutAvatarAssociatesOnlyAuthenticatedCallerAndDeletesOldObject(t *testing.T) {
+	oldPath := "caller/old.jpg"
+	repository := &stubRepository{profiles: map[string]Profile{
+		"caller": {ID: "caller", Username: "caller", AvatarPath: &oldPath},
+		"other":  {ID: "other", Username: "other"},
+	}, updates: map[string]Update{}}
+	store := &stubAvatarStore{}
+	service := NewService(repository, store)
+	service.newKey = func(owner, extension string) (string, error) { return owner + "/new." + extension, nil }
+
+	response := performAvatarRequest(NewHandler(service), "caller", "image/jpeg", []byte{0xff, 0xd8, 0xff, 0xe0})
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if store.putKey != "caller/new.jpg" || store.deletedKey != oldPath {
+		t.Fatalf("uploaded = %q, deleted = %q", store.putKey, store.deletedKey)
+	}
+	if repository.profiles["other"].AvatarPath != nil {
+		t.Fatal("another user's avatar association was updated")
+	}
+	if got := *repository.profiles["caller"].AvatarPath; got != "caller/new.jpg" {
+		t.Fatalf("caller avatar = %q", got)
+	}
+	if bytes.Contains(response.Body.Bytes(), []byte("avatar_path")) {
+		t.Fatalf("private storage path leaked: %s", response.Body.String())
+	}
+}
+
+func TestPutAvatarSurfacesStorageFailure(t *testing.T) {
+	repository := &stubRepository{profiles: map[string]Profile{"caller": {ID: "caller"}}, updates: map[string]Update{}}
+	store := &stubAvatarStore{putErr: errors.New("storage unavailable")}
+	response := performAvatarRequest(NewHandler(NewService(repository, store)), "caller", "image/png", []byte("\x89PNG\r\n\x1a\n"))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"code":"avatar_upload_failed"`)) {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestPutAvatarRejectsUnsupportedContentType(t *testing.T) {
+	repository := &stubRepository{profiles: map[string]Profile{"caller": {ID: "caller"}}, updates: map[string]Update{}}
+	response := performAvatarRequest(NewHandler(NewService(repository, &stubAvatarStore{})), "caller", "image/gif", []byte("image"))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func performRequest(handler *Handler, method string, body any, caller string) *httptest.ResponseRecorder {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -102,6 +177,27 @@ func performRequest(handler *Handler, method string, body any, caller string) *h
 	}
 	request := httptest.NewRequest(method, "/me", bytes.NewReader(encoded))
 	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	return response
+}
+
+func performAvatarRequest(handler *Handler, caller, contentType string, contents []byte) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="avatar"; filename="avatar"`)
+	header.Set("Content-Type", contentType)
+	part, _ := writer.CreatePart(header)
+	_, _ = part.Write(contents)
+	_ = writer.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(AuthenticatedUserIDKey, caller) })
+	router.PUT("/me/avatar", handler.PutAvatar)
+	request := httptest.NewRequest(http.MethodPut, "/me/avatar", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response
