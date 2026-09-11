@@ -72,6 +72,18 @@ A task should generally correspond to one GitHub issue or one clearly defined ou
 
 If a request contains several separable features, recommend splitting the work before implementing unless they are tightly coupled.
 
+## Branch and Pull Request Workflow
+
+`develop` is the integration branch for ongoing work.
+
+For all Linear-initiated and Codex-initiated work, unless the user explicitly requests otherwise:
+
+- create the working branch from the latest `develop`
+- open pull requests with `develop` as the base/target branch
+- never target `main` directly
+
+Treat `main` as the release branch. Changes should reach `main` through an explicit promotion or release pull request from `develop`, not directly from a feature branch.
+
 ## Backend
 
 Backend technology:
