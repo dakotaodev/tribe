@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dakota/tribe/api/internal/auth"
+	"github.com/dakota/tribe/api/internal/users"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,6 +23,8 @@ type config struct {
 	port            string
 	shutdownTimeout time.Duration
 	auth            auth.Config
+	supabaseURL     string
+	supabaseSecret  string
 }
 
 func main() {
@@ -36,9 +39,11 @@ func main() {
 		logger.Error("could not configure Supabase JWT verifier", "error", err)
 		os.Exit(1)
 	}
+	profileRepository := users.NewSupabaseRepository(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
+	profileHandler := users.NewHandler(users.NewService(profileRepository))
 	server := &http.Server{
 		Addr:              ":" + config.port,
-		Handler:           newRouter(logger, verifier),
+		Handler:           newRouterWithProfile(logger, profileHandler, verifier),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -69,6 +74,8 @@ func loadConfig() (config, error) {
 	return config{
 		port:            port,
 		shutdownTimeout: 10 * time.Second,
+		supabaseURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
+		supabaseSecret:  strings.TrimSpace(os.Getenv("SUPABASE_SECRET_KEY")),
 		auth: auth.Config{
 			Issuer: issuer, Audience: audience, JWKSURL: issuer + "/.well-known/jwks.json",
 		},
@@ -100,17 +107,37 @@ func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 }
 
 func newRouter(logger *slog.Logger, verifier *auth.Verifier) *gin.Engine {
+	return newRouterWithProfile(logger, nil, verifier)
+}
+
+func newRouterWithProfile(logger *slog.Logger, profileHandler *users.Handler, verifier *auth.Verifier) *gin.Engine {
 	router := gin.New()
 	router.Use(requestLogger(logger), gin.CustomRecovery(func(context *gin.Context, recovered any) {
 		logger.Error("request panicked", "error", recovered, "method", context.Request.Method, "path", context.Request.URL.Path)
 		context.AbortWithStatus(http.StatusInternalServerError)
 	}))
 	router.GET("/health", healthHandler)
-	// Feature handlers add auth.Require(verifier) at their route boundary. No
-	// protected product route exists until the #31 current-user contract lands.
-	_ = verifier
+	if profileHandler != nil && verifier != nil {
+		currentUser := router.Group("/me", auth.Require(verifier), profileUserContext())
+		currentUser.GET("", profileHandler.GetMe)
+		currentUser.PUT("", profileHandler.PutMe)
+	}
 
 	return router
+}
+
+func profileUserContext() gin.HandlerFunc {
+	return func(context *gin.Context) {
+		identity, ok := auth.IdentityFromContext(context)
+		if !ok {
+			context.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{"code": "unauthorized", "message": "authentication required"},
+			})
+			return
+		}
+		context.Set(users.AuthenticatedUserIDKey, identity.UserID)
+		context.Next()
+	}
 }
 
 func requestLogger(logger *slog.Logger) gin.HandlerFunc {
