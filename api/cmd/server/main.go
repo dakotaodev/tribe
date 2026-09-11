@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dakota/tribe/api/internal/auth"
+	"github.com/dakota/tribe/api/internal/users"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,14 +22,21 @@ const defaultPort = "8080"
 type config struct {
 	port            string
 	shutdownTimeout time.Duration
+	supabaseURL     string
+	jwtIssuer       string
+	jwtAudience     string
+	supabaseSecret  string
 }
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	config := loadConfig()
+	profileRepository := users.NewSupabaseRepository(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
+	profileHandler := users.NewHandler(users.NewService(profileRepository))
+	verifier := auth.NewJWTVerifier(config.supabaseURL+"/auth/v1/.well-known/jwks.json", config.jwtIssuer, config.jwtAudience)
 	server := &http.Server{
 		Addr:              ":" + config.port,
-		Handler:           newRouter(logger),
+		Handler:           newRouterWithProfile(logger, profileHandler, verifier),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -50,6 +59,10 @@ func loadConfig() config {
 	return config{
 		port:            port,
 		shutdownTimeout: 10 * time.Second,
+		supabaseURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
+		jwtIssuer:       strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_JWT_ISSUER")), "/"),
+		jwtAudience:     strings.TrimSpace(os.Getenv("SUPABASE_JWT_AUDIENCE")),
+		supabaseSecret:  strings.TrimSpace(os.Getenv("SUPABASE_SECRET_KEY")),
 	}
 }
 
@@ -78,12 +91,21 @@ func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 }
 
 func newRouter(logger *slog.Logger) *gin.Engine {
+	return newRouterWithProfile(logger, nil, nil)
+}
+
+func newRouterWithProfile(logger *slog.Logger, profileHandler *users.Handler, verifier auth.Verifier) *gin.Engine {
 	router := gin.New()
 	router.Use(requestLogger(logger), gin.CustomRecovery(func(context *gin.Context, recovered any) {
 		logger.Error("request panicked", "error", recovered, "method", context.Request.Method, "path", context.Request.URL.Path)
 		context.AbortWithStatus(http.StatusInternalServerError)
 	}))
 	router.GET("/health", healthHandler)
+	if profileHandler != nil && verifier != nil {
+		currentUser := router.Group("/me", auth.Middleware(verifier))
+		currentUser.GET("", profileHandler.GetMe)
+		currentUser.PUT("", profileHandler.PutMe)
+	}
 
 	return router
 }
