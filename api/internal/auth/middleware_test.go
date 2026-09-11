@@ -16,8 +16,9 @@ func TestRequireRejectsMissingAndInvalidBearerTokens(t *testing.T) {
 	defer server.Close()
 	verifier := newTestVerifier(t, server.URL, time.Now)
 	router := protectedRouter(verifier)
+	expired := "Bearer " + signedToken(t, key, testIssuer, testAudience, time.Now().Add(-time.Minute), testUserID)
 
-	for _, authorization := range []string{"", "Basic credential", "Bearer", "Bearer invalid.token.value"} {
+	for _, authorization := range []string{"", "Basic credential", "Bearer", "Bearer invalid.token.value", expired} {
 		t.Run(authorization, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/protected", nil)
 			if authorization != "" {
@@ -29,7 +30,7 @@ func TestRequireRejectsMissingAndInvalidBearerTokens(t *testing.T) {
 			if recorder.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
 			}
-			if recorder.Body.String() != `{"error":{"code":"unauthorized","message":"authentication required"}}` {
+			if recorder.Body.String() != `{"error":{"code":"UNAUTHENTICATED","message":"Authentication required."}}` {
 				t.Fatalf("body = %s", recorder.Body.String())
 			}
 		})

@@ -48,6 +48,6 @@ func bearerToken(header string) (string, bool) {
 
 func unauthorized(context *gin.Context) {
 	context.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-		"error": gin.H{"code": "unauthorized", "message": "authentication required"},
+		"error": gin.H{"code": "UNAUTHENTICATED", "message": "Authentication required."},
 	})
 }

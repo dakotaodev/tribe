@@ -4,7 +4,8 @@ export class ApiError extends Error {
   constructor(
     public readonly kind: "unauthorized" | "notFound" | "validation" | "conflict" | "network" | "server",
     message: string,
-    public readonly fields: ProfileErrors = {}
+    public readonly fields: ProfileErrors = {},
+    public readonly code?: string
   ) { super(message); }
 }
 
@@ -15,7 +16,11 @@ export class ProfileApi {
 
   async getMe(token: string): Promise<Profile | null> {
     const response = await this.request("GET", token);
-    if (response.status === 404) return null;
+    if (response.status === 404) {
+      const error = await toApiError(response);
+      if (error.code === "PROFILE_ONBOARDING_REQUIRED") return null;
+      throw error;
+    }
     if (!response.ok) throw await toApiError(response);
     return profileFromWire(await response.json());
   }
@@ -50,9 +55,10 @@ async function toApiError(response: Response): Promise<ApiError> {
   const detail = ((body.error as Record<string, unknown> | undefined) ?? body);
   const message = typeof detail.message === "string" ? detail.message : "Something went wrong. Please try again.";
   const fields = ((detail.fields ?? detail.errors) as ProfileErrors | undefined) ?? {};
-  if (response.status === 401) return new ApiError("unauthorized", "Your session expired. Please sign in again.");
-  if (response.status === 404) return new ApiError("notFound", message);
-  if (response.status === 409) return new ApiError("conflict", message || "That username is already taken.", fields.username ? fields : { username: "That username is already taken." });
-  if (response.status === 400 || response.status === 422) return new ApiError("validation", message, fields);
-  return new ApiError("server", message);
+  const code = typeof detail.code === "string" ? detail.code : undefined;
+  if (response.status === 401) return new ApiError("unauthorized", "Your session expired. Please sign in again.", {}, code);
+  if (response.status === 404) return new ApiError("notFound", message, fields, code);
+  if (response.status === 409) return new ApiError("conflict", message || "That username is already taken.", fields.username ? fields : { username: "That username is already taken." }, code);
+  if (response.status === 400 || response.status === 422) return new ApiError("validation", message, fields, code);
+  return new ApiError("server", message, fields, code);
 }

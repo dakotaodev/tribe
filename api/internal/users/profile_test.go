@@ -47,7 +47,7 @@ func (r *stubRepository) Upsert(_ context.Context, id string, update Update) (Pr
 		}
 	}
 	r.updates[id] = update
-	profile := Profile{ID: id, Username: update.Username, DisplayName: update.DisplayName, Bio: update.Bio}
+	profile := Profile{ID: id, Username: update.Username, DisplayName: update.DisplayName, Bio: *update.Bio}
 	r.profiles[id] = profile
 	return profile, nil
 }
@@ -64,16 +64,19 @@ func (r *stubRepository) SetAvatar(_ context.Context, id, path string) (Profile,
 func TestGetMeReturnsOnboardingState(t *testing.T) {
 	repository := &stubRepository{profiles: map[string]Profile{}, updates: map[string]Update{}}
 	response := performRequest(NewHandler(NewService(repository)), http.MethodGet, nil, "caller")
-	if response.Code != http.StatusOK {
+	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d", response.Code)
 	}
-	if response.Body.String() != `{"profile":null,"profile_complete":false}` {
+	if response.Body.String() != `{"error":{"code":"PROFILE_ONBOARDING_REQUIRED","message":"Create your profile to continue."}}` {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
 
 func TestPutMeMutatesOnlyAuthenticatedCaller(t *testing.T) {
-	repository := &stubRepository{profiles: map[string]Profile{"other": {ID: "other", Username: "other_user"}}, updates: map[string]Update{}}
+	repository := &stubRepository{profiles: map[string]Profile{
+		"caller": {ID: "caller", Username: "caller_user", Bio: "old bio"},
+		"other":  {ID: "other", Username: "other_user"},
+	}, updates: map[string]Update{}}
 	response := performRequest(NewHandler(NewService(repository)), http.MethodPut,
 		map[string]any{"username": " New_User ", "display_name": " New Name ", "bio": " Hello "}, "caller")
 	if response.Code != http.StatusOK {
@@ -84,6 +87,84 @@ func TestPutMeMutatesOnlyAuthenticatedCaller(t *testing.T) {
 	}
 	if repository.updates["caller"].Username != "new_user" {
 		t.Fatalf("update = %#v", repository.updates["caller"])
+	}
+}
+
+func TestPutMeReturnsCreatedAndStandardEnvelopeForNewProfile(t *testing.T) {
+	repository := &stubRepository{profiles: map[string]Profile{}, updates: map[string]Update{}}
+	response := performRequest(NewHandler(NewService(repository)), http.MethodPut,
+		map[string]any{"username": "new_user", "display_name": "New User"}, "caller")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Data Profile `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.ID != "caller" || body.Data.Bio != "" {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestPutMePreservesOmittedBioWhenUpdating(t *testing.T) {
+	repository := &stubRepository{profiles: map[string]Profile{
+		"caller": {ID: "caller", Username: "caller", DisplayName: "Caller", Bio: "keep me"},
+	}, updates: map[string]Update{}}
+	response := performRequest(NewHandler(NewService(repository)), http.MethodPut,
+		map[string]any{"username": "caller", "display_name": "Updated Caller"}, "caller")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if got := repository.profiles["caller"].Bio; got != "keep me" {
+		t.Fatalf("bio = %q, want preserved value", got)
+	}
+}
+
+func TestPutMeRejectsUnknownUserIDWithoutMutation(t *testing.T) {
+	repository := &stubRepository{profiles: map[string]Profile{
+		"caller": {ID: "caller", Username: "caller", DisplayName: "Caller"},
+		"other":  {ID: "other", Username: "other", DisplayName: "Other"},
+	}, updates: map[string]Update{}}
+	response := performRequest(NewHandler(NewService(repository)), http.MethodPut,
+		map[string]any{"username": "changed", "display_name": "Changed", "user_id": "other"}, "caller")
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if len(repository.updates) != 0 || repository.profiles["other"].Username != "other" {
+		t.Fatalf("unexpected mutation: %#v", repository.updates)
+	}
+}
+
+func TestPutMeRejectsMalformedAndMissingRequiredFields(t *testing.T) {
+	for name, body := range map[string]string{
+		"malformed":        `{"username":`,
+		"missing username": `{"display_name":"Caller"}`,
+		"multiple values":  `{"username":"caller","display_name":"Caller"}{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			repository := &stubRepository{profiles: map[string]Profile{}, updates: map[string]Update{}}
+			response := performRawRequest(NewHandler(NewService(repository)), body, "caller")
+			if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte(`"code":"INVALID_REQUEST"`)) {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestPutMeRejectsWrongFieldTypeAsValidationFailure(t *testing.T) {
+	for name, body := range map[string]string{
+		"numeric username": `{"username":7,"display_name":"Caller"}`,
+		"null bio":         `{"username":"caller","display_name":"Caller","bio":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			repository := &stubRepository{profiles: map[string]Profile{}, updates: map[string]Update{}}
+			response := performRawRequest(NewHandler(NewService(repository)), body, "caller")
+			if response.Code != http.StatusUnprocessableEntity || !bytes.Contains(response.Body.Bytes(), []byte(`"code":"VALIDATION_FAILED"`)) {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -99,7 +180,7 @@ func TestPutMeRejectsDuplicateUsername(t *testing.T) {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error.Code != "username_taken" {
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error.Code != "USERNAME_TAKEN" {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
@@ -152,7 +233,7 @@ func TestPutAvatarSurfacesStorageFailure(t *testing.T) {
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"code":"avatar_upload_failed"`)) {
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"code":"AVATAR_UPLOAD_FAILED"`)) {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
@@ -176,6 +257,18 @@ func performRequest(handler *Handler, method string, body any, caller string) *h
 		encoded, _ = json.Marshal(body)
 	}
 	request := httptest.NewRequest(method, "/me", bytes.NewReader(encoded))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	return response
+}
+
+func performRawRequest(handler *Handler, body, caller string) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(AuthenticatedUserIDKey, caller) })
+	router.PUT("/me", handler.PutMe)
+	request := httptest.NewRequest(http.MethodPut, "/me", bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

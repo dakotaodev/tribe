@@ -37,15 +37,15 @@ The profile returned by this API has the following shape:
   "username": "dakota",
   "display_name": "Dakota",
   "bio": "Building a quieter social network.",
-  "avatar_path": "avatars/f83f6ae5-0c18-4b1f-91ef-f7584793af9b/avatar.jpg",
+  "avatar_url": "https://example.supabase.co/storage/v1/object/sign/avatars/...",
   "created_at": "2026-09-06T19:00:00Z",
   "updated_at": "2026-09-06T19:02:00Z"
 }
 ```
 
-`id`, `created_at`, and `updated_at` are server-managed and read-only.
-`avatar_path` is either a private Storage object path or `null`; it is not a
-public URL. Signed avatar URLs, if needed, are a separate future contract.
+`id`, `avatar_url`, `created_at`, and `updated_at` are server-managed and
+read-only. `avatar_url` is either a short-lived signed URL or `null`. The API
+never exposes the private Storage object path.
 
 ### Writable fields and validation
 
@@ -53,14 +53,16 @@ public URL. Signed avatar URLs, if needed, are a separate future contract.
 
 | Field | Required | Rules |
 | --- | --- | --- |
-| `username` | Yes | String of 3–30 characters; unique across users. |
+| `username` | Yes | String of 3–30 lowercase ASCII letters, numbers, or underscores; unique across users. |
 | `display_name` | Yes | String of 1–80 characters. |
 | `bio` | No | String of 0–500 characters; omitted means `""` when creating and preserves the existing value when updating. |
-| `avatar_path` | No | String private Storage object path or `null`; omitted preserves the existing value when updating and is `null` when creating. |
 
-Character counts use PostgreSQL `char_length`, matching the database schema.
-The API treats username uniqueness as case-sensitive until a later migration
-and contract explicitly change that behavior.
+The API trims surrounding whitespace from all writable fields and lowercases
+the username before validation and persistence. Consequently, username
+uniqueness is case-insensitive at the API boundary even though the database
+unique constraint itself is case-sensitive. Character counts match PostgreSQL
+`char_length`; the username's ASCII-only rule also makes its byte and character
+counts identical.
 
 ## Profile lifecycle
 
@@ -90,7 +92,7 @@ Returns the authenticated caller's profile.
     "username": "dakota",
     "display_name": "Dakota",
     "bio": "Building a quieter social network.",
-    "avatar_path": null,
+    "avatar_url": null,
     "created_at": "2026-09-06T19:00:00Z",
     "updated_at": "2026-09-06T19:00:00Z"
   }
@@ -124,8 +126,7 @@ Authorization: Bearer <supabase-access-token>
 {
   "username": "dakota",
   "display_name": "Dakota",
-  "bio": "Building a quieter social network.",
-  "avatar_path": null
+  "bio": "Building a quieter social network."
 }
 ```
 
@@ -139,12 +140,20 @@ profile in the standard success envelope:
     "username": "dakota",
     "display_name": "Dakota",
     "bio": "Building a quieter social network.",
-    "avatar_path": null,
+    "avatar_url": null,
     "created_at": "2026-09-06T19:00:00Z",
     "updated_at": "2026-09-06T19:02:00Z"
   }
 }
 ```
+
+### `PUT /me/avatar`
+
+Uploads or replaces the authenticated caller's avatar. The request is
+`multipart/form-data` with one `avatar` file field. JPEG, PNG, and WebP images
+up to 5 MB are accepted. Clients cannot choose a Storage key or submit a user
+ID. Success returns `200 OK` with the same `{ "data": ... }` profile envelope
+used by `GET /me` and `PUT /me`.
 
 ## Error envelope
 
@@ -172,6 +181,8 @@ Clients should branch on `error.code`, not the message text.
 | `404` | `PROFILE_ONBOARDING_REQUIRED` | `GET /me` found no application profile for an otherwise authenticated caller. |
 | `409` | `USERNAME_TAKEN` | The requested username is already owned by another user. |
 | `422` | `VALIDATION_FAILED` | A writable field violates its documented type or length rules. |
+| `422` | `INVALID_AVATAR` | The avatar is missing, unsupported, or larger than 5 MB. |
+| `502` | `AVATAR_UPLOAD_FAILED` | Storage could not upload or associate the avatar. |
 | `500` | `INTERNAL_ERROR` | An unexpected server failure occurred. |
 
 For example, a username conflict is:

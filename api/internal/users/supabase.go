@@ -75,7 +75,7 @@ func (r *SupabaseRepository) SetAvatar(ctx context.Context, userID, avatarPath s
 }
 
 func (r *SupabaseRepository) Upsert(ctx context.Context, userID string, input Update) (Profile, error) {
-	body, err := json.Marshal(map[string]string{"id": userID, "username": input.Username, "display_name": input.DisplayName, "bio": input.Bio})
+	body, err := json.Marshal(map[string]string{"id": userID, "username": input.Username, "display_name": input.DisplayName, "bio": *input.Bio})
 	if err != nil {
 		return Profile{}, err
 	}

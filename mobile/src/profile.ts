@@ -6,12 +6,13 @@ export const profileLimits = {
 } as const;
 
 export type Profile = {
+  id: string;
   username: string;
   displayName: string;
   bio: string;
   avatarUrl: string | null;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ProfileInput = Pick<Profile, "username" | "displayName" | "bio">;
@@ -41,13 +42,16 @@ export function validateProfile(input: ProfileInput): ProfileErrors {
 
 export function profileFromWire(value: unknown): Profile {
   const root = value as Record<string, unknown>;
-  const raw = ((root.profile as Record<string, unknown> | undefined) ?? root);
+  const raw = root.data;
+  if (!raw || typeof raw !== "object") throw new Error("Profile response is missing data.");
+  const data = raw as Record<string, unknown>;
   return {
-    username: String(raw.username ?? ""),
-    displayName: String(raw.display_name ?? raw.displayName ?? ""),
-    bio: String(raw.bio ?? ""),
-    avatarUrl: (raw.avatar_url ?? raw.avatarUrl ?? null) as string | null,
-    createdAt: (raw.created_at ?? raw.createdAt) as string | undefined,
-    updatedAt: (raw.updated_at ?? raw.updatedAt) as string | undefined
+    id: String(data.id ?? ""),
+    username: String(data.username ?? ""),
+    displayName: String(data.display_name ?? ""),
+    bio: String(data.bio ?? ""),
+    avatarUrl: (data.avatar_url ?? null) as string | null,
+    createdAt: String(data.created_at ?? ""),
+    updatedAt: String(data.updated_at ?? "")
   };
 }
