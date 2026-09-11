@@ -32,7 +32,8 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	config := loadConfig()
 	profileRepository := users.NewSupabaseRepository(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
-	profileHandler := users.NewHandler(users.NewService(profileRepository))
+	avatarStore := users.NewSupabaseAvatarStore(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
+	profileHandler := users.NewHandler(users.NewService(profileRepository, avatarStore))
 	verifier := auth.NewJWTVerifier(config.supabaseURL+"/auth/v1/.well-known/jwks.json", config.jwtIssuer, config.jwtAudience)
 	server := &http.Server{
 		Addr:              ":" + config.port,
@@ -105,6 +106,7 @@ func newRouterWithProfile(logger *slog.Logger, profileHandler *users.Handler, ve
 		currentUser := router.Group("/me", auth.Middleware(verifier))
 		currentUser.GET("", profileHandler.GetMe)
 		currentUser.PUT("", profileHandler.PutMe)
+		currentUser.PUT("/avatar", profileHandler.PutAvatar)
 	}
 
 	return router
