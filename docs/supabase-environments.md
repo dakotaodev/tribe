@@ -123,6 +123,12 @@ user ID. `avatar_path` stores a private Supabase Storage object path rather
 than a permanent public URL; the API will produce authorized, short-lived
 signed URLs when avatars are served.
 
+The private `avatars` bucket accepts JPEG, PNG, and WebP files up to 5 MB. The
+API stores objects under `<authenticated-user-id>/<random-id>.<extension>` and
+exposes `PUT /me/avatar` as a multipart request with an `avatar` file field.
+Clients never choose the storage key or persist an avatar association directly;
+profile responses contain a short-lived `avatar_url` instead of `avatar_path`.
+
 ### Apply locally
 
 With Docker running and the Supabase CLI installed, recreate the local database

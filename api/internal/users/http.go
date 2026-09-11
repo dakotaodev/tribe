@@ -2,6 +2,7 @@ package users
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,7 @@ func (h *Handler) GetMe(c *gin.Context) {
 		internalError(c)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"profile": profile, "profile_complete": true})
+	c.JSON(http.StatusOK, profileResponse(profile))
 }
 
 func (h *Handler) PutMe(c *gin.Context) {
@@ -48,8 +49,45 @@ func (h *Handler) PutMe(c *gin.Context) {
 	case err != nil:
 		internalError(c)
 	default:
-		c.JSON(http.StatusOK, gin.H{"profile": profile, "profile_complete": true})
+		c.JSON(http.StatusOK, profileResponse(profile))
 	}
+}
+
+func (h *Handler) PutAvatar(c *gin.Context) {
+	// Leave room for multipart framing while preventing arbitrarily large bodies
+	// from being buffered to disk before the image limit is checked.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 6*1024*1024)
+	file, header, err := c.Request.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, errorResponse("invalid_avatar", ErrInvalidAvatar.Error(), nil))
+		return
+	}
+	defer file.Close()
+	contents, err := io.ReadAll(io.LimitReader(file, 5*1024*1024+1))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, errorResponse("avatar_upload_failed", "avatar upload failed", nil))
+		return
+	}
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType(contents)
+	}
+	profile, err := h.service.UpdateAvatar(c.Request.Context(), c.GetString(AuthenticatedUserIDKey), contentType, contents)
+	switch {
+	case errors.Is(err, ErrInvalidAvatar):
+		c.JSON(http.StatusUnprocessableEntity, errorResponse("invalid_avatar", err.Error(), nil))
+	case err != nil:
+		c.JSON(http.StatusBadGateway, errorResponse("avatar_upload_failed", "avatar upload failed", nil))
+	default:
+		c.JSON(http.StatusOK, profileResponse(profile))
+	}
+}
+
+func profileResponse(profile Profile) gin.H {
+	return gin.H{"profile": gin.H{
+		"id": profile.ID, "username": profile.Username, "display_name": profile.DisplayName,
+		"bio": profile.Bio, "avatar_url": profile.AvatarURL, "created_at": profile.CreatedAt, "updated_at": profile.UpdatedAt,
+	}, "profile_complete": true}
 }
 
 func errorResponse(code, message string, fields ValidationErrors) gin.H {

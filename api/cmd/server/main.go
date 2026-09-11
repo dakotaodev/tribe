@@ -40,7 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 	profileRepository := users.NewSupabaseRepository(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
-	profileHandler := users.NewHandler(users.NewService(profileRepository))
+	avatarStore := users.NewSupabaseAvatarStore(config.supabaseURL, config.supabaseSecret, http.DefaultClient)
+	profileHandler := users.NewHandler(users.NewService(profileRepository, avatarStore))
 	server := &http.Server{
 		Addr:              ":" + config.port,
 		Handler:           newRouterWithProfile(logger, profileHandler, verifier),
@@ -121,6 +122,7 @@ func newRouterWithProfile(logger *slog.Logger, profileHandler *users.Handler, ve
 		currentUser := router.Group("/me", auth.Require(verifier), profileUserContext())
 		currentUser.GET("", profileHandler.GetMe)
 		currentUser.PUT("", profileHandler.PutMe)
+		currentUser.PUT("/avatar", profileHandler.PutAvatar)
 	}
 
 	return router
