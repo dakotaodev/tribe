@@ -34,7 +34,7 @@ type Profile struct {
 type Update struct {
 	Username    string
 	DisplayName string
-	Bio         string
+	Bio         *string
 }
 
 type ValidationErrors map[string]string
@@ -72,10 +72,13 @@ func (s *Service) Get(ctx context.Context, callerID string) (Profile, error) {
 	return s.withAvatarURL(ctx, profile, err)
 }
 
-func (s *Service) Update(ctx context.Context, callerID string, input Update) (Profile, error) {
+func (s *Service) Update(ctx context.Context, callerID string, input Update) (Profile, bool, error) {
 	input.Username = strings.ToLower(strings.TrimSpace(input.Username))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	input.Bio = strings.TrimSpace(input.Bio)
+	if input.Bio != nil {
+		bio := strings.TrimSpace(*input.Bio)
+		input.Bio = &bio
+	}
 
 	validation := ValidationErrors{}
 	if len(input.Username) < 3 || len(input.Username) > 30 || !usernamePattern.MatchString(input.Username) {
@@ -84,15 +87,28 @@ func (s *Service) Update(ctx context.Context, callerID string, input Update) (Pr
 	if utf8.RuneCountInString(input.DisplayName) < 1 || utf8.RuneCountInString(input.DisplayName) > 80 {
 		validation["display_name"] = "must be between 1 and 80 characters"
 	}
-	if utf8.RuneCountInString(input.Bio) > 500 {
+	if input.Bio != nil && utf8.RuneCountInString(*input.Bio) > 500 {
 		validation["bio"] = "must be at most 500 characters"
 	}
 	if len(validation) != 0 {
-		return Profile{}, validation
+		return Profile{}, false, validation
 	}
 
+	existing, err := s.repository.Get(ctx, callerID)
+	created := errors.Is(err, ErrNotFound)
+	if err != nil && !created {
+		return Profile{}, false, err
+	}
+	if input.Bio == nil {
+		bio := ""
+		if !created {
+			bio = existing.Bio
+		}
+		input.Bio = &bio
+	}
 	profile, err := s.repository.Upsert(ctx, callerID, input)
-	return s.withAvatarURL(ctx, profile, err)
+	profile, err = s.withAvatarURL(ctx, profile, err)
+	return profile, created, err
 }
 
 func (s *Service) UpdateAvatar(ctx context.Context, callerID, contentType string, contents []byte) (Profile, error) {

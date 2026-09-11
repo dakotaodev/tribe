@@ -133,7 +133,7 @@ func profileUserContext() gin.HandlerFunc {
 		identity, ok := auth.IdentityFromContext(context)
 		if !ok {
 			context.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{"code": "unauthorized", "message": "authentication required"},
+				"error": gin.H{"code": "UNAUTHENTICATED", "message": "Authentication required."},
 			})
 			return
 		}
